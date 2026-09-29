@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111418" media="(prefers-color-scheme: dark)" />
+    <title>
+      Monitoreo de eventos
+    </title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <style>
+      :root {
+    --fondo: #f3f5f8; --superficie: #ffffff; --superficie-2: #f7f8fa;
+    --texto: #151a23; --suave: #5f6878; --tenue: #8a93a3; --borde: #e3e7ee;
+    --acento: #1a7f55; --acento-suave: #e6f4ee;
+    --alerta: #c2362b; --alerta-suave: #fdecea;
+    --aviso: #b26a00; --aviso-suave: #fff4e0;
+    --sombra: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06);
+    --sombra-alta: 0 10px 30px rgba(16,24,40,.16);
+    --radio: 12px;
+    --mapa-filtro: grayscale(.55) contrast(.95) brightness(1.03);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #0d1014; --superficie: #151a21; --superficie-2: #1b212a;
+      --texto: #e8ebf0; --suave: #a3acbb; --tenue: #717b8c; --borde: #262d38;
+      --acento: #45c48b; --acento-suave: #133226;
+      --alerta: #ff6f63; --alerta-suave: #3a1714;
+      --aviso: #f0a63a; --aviso-suave: #3a2a10;
+      --sombra: 0 1px 2px rgba(0,0,0,.4);
+      --sombra-alta: 0 10px 30px rgba(0,0,0,.55);
+      --mapa-filtro: grayscale(.6) invert(.92) hue-rotate(180deg) brightness(.95) contrast(.9);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    background: var(--fondo); color: var(--texto);
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  button, select { font: inherit; color: inherit; }
+  svg.ic { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---------- encabezado ---------- */
+  header {
+    position: sticky; top: 0; z-index: 1000;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 24px; padding-top: max(12px, env(safe-area-inset-top));
+    background: color-mix(in srgb, var(--superficie) 92%, transparent);
+    backdrop-filter: saturate(1.4) blur(8px);
+    border-bottom: 1px solid var(--borde);
+  }
+  .marca { display: flex; flex-direction: column; min-width: 0; }
+  .marca h1 { font-size: 17px; font-weight: 650; margin: 0; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .marca .sub { color: var(--suave); font-size: 12.5px; }
+  #selector select {
+    height: 36px; padding: 0 10px; background: var(--superficie); border: 1px solid var(--borde); border-radius: 8px;
+  }
+  .acciones { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .estado {
+    display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px;
+    border-radius: 999px; background: var(--superficie-2); border: 1px solid var(--borde);
+    color: var(--suave); font-size: 12.5px; white-space: nowrap;
+  }
+  .estado .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--tenue); }
+  .estado.vivo { color: var(--acento); background: var(--acento-suave); border-color: transparent; }
+  .estado.vivo .punto { background: var(--acento); animation: latido 2s infinite; }
+  .estado.error { color: var(--alerta); background: var(--alerta-suave); border-color: transparent; }
+  .estado.error .punto { background: var(--alerta); }
+  .boton {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 14px;
+    background: var(--superficie); border: 1px solid var(--borde); border-radius: 8px; cursor: pointer;
+    font-weight: 550; box-shadow: var(--sombra); transition: background .15s, border-color .15s;
+  }
+  .boton:hover { border-color: var(--tenue); }
+  .boton[aria-pressed="true"] { background: var(--acento); border-color: var(--acento); color: #fff; }
+  .boton:disabled { opacity: .6; cursor: progress; }
+
+  /* ---------- contenido ---------- */
+  .contenedor { max-width: 1440px; margin: 0 auto; padding: 20px 24px 24px; }
+
+  .resumen { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+  .kpi {
+    background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio);
+    padding: 14px 16px; box-shadow: var(--sombra); display: flex; gap: 12px; align-items: center; min-width: 0;
+  }
+  .kpi .icono {
+    width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; flex: none;
+    background: var(--superficie-2); color: var(--suave);
+  }
+  .kpi.verde .icono { background: var(--acento-suave); color: var(--acento); }
+  .kpi.rojo .icono { background: var(--alerta-suave); color: var(--alerta); }
+  .kpi.ambar .icono { background: var(--aviso-suave); color: var(--aviso); }
+  .kpi .dato { min-width: 0; }
+  .kpi .etiqueta { color: var(--suave); font-size: 12.5px; }
+  .kpi .valor { font-size: 20px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpi .detalle { color: var(--tenue); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .cuerpo { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; height: calc(100vh - 210px); min-height: 460px; }
+  .tarjeta {
+    background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio);
+    box-shadow: var(--sombra); min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .tarjeta-cab {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 14px 16px; border-bottom: 1px solid var(--borde);
+  }
+  .tarjeta-cab h2 { font-size: 14px; font-weight: 650; margin: 0; }
+  .tarjeta-cab .nota { color: var(--tenue); font-size: 12.5px; }
+  #mapa { flex: 1; min-height: 300px; background: var(--superficie-2); }
+  #mapa .leaflet-tile-pane { filter: var(--mapa-filtro); }
+  .leaflet-popup-content { font: 13px/1.4 system-ui, sans-serif; margin: 10px 12px; }
+  .leaflet-popup-content strong { font-size: 13.5px; }
+
+  aside { display: flex; flex-direction: column; gap: 18px; min-height: 0; }
+  .pestanas { display: none; }
+  #sec-eventos { flex: 1; }
+  .lista { overflow-y: auto; flex: 1; padding: 6px 8px 10px; }
+  .dia {
+    position: sticky; top: 0; z-index: 1; padding: 10px 8px 6px; background: var(--superficie);
+    color: var(--tenue); font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em;
+  }
+
+  .evento {
+    display: grid; grid-template-columns: 36px 1fr auto; gap: 12px; align-items: center;
+    padding: 10px 8px; border-radius: 10px; cursor: pointer; transition: background .15s;
+  }
+  .evento:hover { background: var(--superficie-2); }
+  .evento.nuevo { background: var(--alerta-suave); }
+  .evento .icono {
+    width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--acento-suave); color: var(--acento);
+  }
+  .evento.sin-gps .icono { background: var(--superficie-2); color: var(--tenue); }
+  .evento.nuevo .icono { background: var(--alerta); color: #fff; }
+  .evento .titulo { font-weight: 600; }
+  .evento .meta { color: var(--suave); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 550; background: var(--superficie-2); color: var(--suave);
+  }
+  .chip.gris { color: var(--tenue); }
+  .chip.ambar { background: var(--aviso-suave); color: var(--aviso); }
+  .evento .derecha { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .evento .hace { color: var(--tenue); font-size: 12px; white-space: nowrap; }
+  .intensidad { width: 64px; height: 5px; border-radius: 999px; background: var(--borde); overflow: hidden; }
+  .intensidad span { display: block; height: 100%; border-radius: inherit; background: var(--acento); }
+  .intensidad.media span { background: var(--aviso); }
+  .intensidad.alta span { background: var(--alerta); }
+
+  .equipo { display: flex; align-items: center; gap: 12px; padding: 10px 8px; border-radius: 10px; }
+  .equipo + .equipo { border-top: 1px solid var(--borde); border-radius: 0; }
+  .equipo .led { width: 10px; height: 10px; border-radius: 50%; background: var(--tenue); flex: none; box-shadow: 0 0 0 3px var(--superficie-2); }
+  .equipo .led.on { background: var(--acento); box-shadow: 0 0 0 3px var(--acento-suave); }
+  .equipo .nombre { font-weight: 600; }
+  .equipo .meta { color: var(--suave); font-size: 12.5px; }
+  #sec-equipos .lista { flex: none; max-height: 190px; }
+
+  .vacio { color: var(--tenue); text-align: center; padding: 28px 12px; }
+  .vacio svg.ic { width: 28px; height: 28px; display: block; margin: 0 auto 8px; opacity: .6; }
+
+  /* ---------- avisos ---------- */
+  #avisos {
+    position: fixed; z-index: 2000; top: 76px; right: 24px;
+    display: flex; flex-direction: column; gap: 10px; width: min(360px, calc(100% - 24px));
+    pointer-events: none;
+  }
+  .aviso {
+    pointer-events: auto; cursor: pointer; display: flex; gap: 12px; align-items: center;
+    background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio);
+    box-shadow: var(--sombra-alta); padding: 12px 14px; animation: entrar .25s ease-out;
+  }
+  .aviso .icono { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--alerta); color: #fff; flex: none; }
+  .aviso strong { display: block; font-size: 14px; }
+  .aviso span { color: var(--suave); font-size: 12.5px; }
+
+  .pulso { animation: pulso 1s ease-in-out infinite; }
+  @keyframes pulso { 0%,100% { stroke-width: 3; stroke-opacity: 1; } 50% { stroke-width: 14; stroke-opacity: .25; } }
+  @keyframes latido { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acento) 55%, transparent); } 100% { box-shadow: 0 0 0 7px transparent; } }
+  @keyframes entrar { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- pantallas medianas ---------- */
+  @media (max-width: 1100px) {
+    .resumen { grid-template-columns: repeat(2, 1fr); }
+    .cuerpo { height: calc(100vh - 290px); }
+  }
+
+  /* ---------- teléfono ---------- */
+  @media (max-width: 800px) {
+    header { padding: 10px 14px; padding-top: max(10px, env(safe-area-inset-top)); gap: 10px; }
+    .marca { flex: 1 1 auto; }
+    .marca h1 { font-size: 16px; }
+    .marca .sub { display: none; }
+    .acciones { margin-left: 0; gap: 6px; }
+    .boton .texto, .estado .texto-estado { display: none; }
+    .estado { width: 30px; padding: 0; justify-content: center; }
+    .boton { width: 40px; height: 40px; padding: 0; }
+    #selector { order: 5; width: 100%; }
+    #selector select { width: 100%; height: 40px; }
+
+    .contenedor { padding: 12px 12px 16px; }
+    .resumen { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px; }
+    .kpi { padding: 10px 12px; gap: 10px; }
+    .kpi .icono { width: 32px; height: 32px; border-radius: 8px; }
+    .kpi .valor { font-size: 17px; }
+    .kpi .detalle { display: none; }
+
+    .cuerpo { display: block; height: auto; min-height: 0; }
+    .cuerpo > .tarjeta:first-child { margin-bottom: 12px; }
+    .cuerpo > .tarjeta:first-child .tarjeta-cab { display: none; }
+    #mapa { height: 31vh; height: 31dvh; min-height: 200px; flex: none; }
+    aside { gap: 0; }
+    .pestanas {
+      display: flex; gap: 4px; padding: 4px; margin-bottom: 10px; background: var(--superficie-2);
+      border: 1px solid var(--borde); border-radius: 10px; position: sticky; top: var(--alto-header, 60px); z-index: 900;
+    }
+    .pestanas button {
+      flex: 1; height: 38px; border: 0; border-radius: 8px; background: none; font-weight: 600; color: var(--suave); cursor: pointer;
+    }
+    .pestanas button[aria-selected="true"] { background: var(--superficie); color: var(--texto); box-shadow: var(--sombra); }
+    aside .tarjeta-cab { display: none; }
+    aside:not([data-pestana="equipos"]) #sec-equipos,
+    aside[data-pestana="equipos"] #sec-eventos { display: none; }
+    .lista, #sec-equipos .lista { overflow: visible; max-height: none; }
+    .dia { position: static; padding-top: 12px; }
+    .evento { padding: 12px 8px; }
+    #avisos { top: auto; bottom: calc(14px + env(safe-area-inset-bottom)); right: 50%; transform: translateX(50%); }
+  }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <symbol id="i-onda" viewBox="0 0 24 24">
+        <path d="M2 12h3l3-8 4 16 3-10 2 2h5">
+        </path>
+      </symbol>
+      <symbol id="i-reloj" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9">
+        </circle>
+        <path d="M12 7v5l3 2">
+        </path>
+      </symbol>
+      <symbol id="i-equipo" viewBox="0 0 24 24">
+        <rect x="4" y="4" width="16" height="16" rx="2">
+        </rect>
+        <path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3">
+        </path>
+      </symbol>
+      <symbol id="i-gps" viewBox="0 0 24 24">
+        <path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z">
+        </path>
+        <circle cx="12" cy="9.5" r="2.5">
+        </circle>
+      </symbol>
+      <symbol id="i-campana" viewBox="0 0 24 24">
+        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9">
+        </path>
+        <path d="M10.3 21a1.9 1.9 0 0 0 3.4 0">
+        </path>
+      </symbol>
+      <symbol id="i-campana-off" viewBox="0 0 24 24">
+        <path d="M8.7 3A6 6 0 0 1 18 8c0 2.7.4 4.6 1 6M17 17H3s3-2 3-9c0-.8.1-1.5.4-2.2M10.3 21a1.9 1.9 0 0 0 3.4 0M2 2l20 20">
+        </path>
+      </symbol>
+      <symbol id="i-descarga" viewBox="0 0 24 24">
+        <path d="M12 3v12M7 10l5 5 5-5M4 19h16">
+        </path>
+      </symbol>
+      <symbol id="i-vacio" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9">
+        </circle>
+        <path d="M8 15s1.5-2 4-2 4 2 4 2M9 9h.01M15 9h.01">
+        </path>
+      </symbol>
+    </svg>
+    <header id="cabecera">
+      <div class="marca">
+        <h1 id="titulo">
+          Monitoreo de eventos
+        </h1>
+        <span class="sub">        Detección en tiempo real
+</span>
+      </div>
+      <label id="selector">
+        <select id="proyecto" aria-label="Proyecto">
+        </select>
+      </label>
+      <div class="acciones">
+        <span class="estado" id="estado">        <span class="punto"></span>
+        <span class="texto-estado">        Conectando…
+</span>
+</span>
+        <button class="boton" id="btn-alertas" aria-pressed="false" title="Activar alertas en vivo">
+          <svg class="ic">
+            <use href="#i-campana-off">
+            </use>
+          </svg>
+          <span class="texto">          Alertas
+</span>
+        </button>
+        <button class="boton" id="btn-exportar" title="Descargar todos los eventos (CSV)">
+          <svg class="ic">
+            <use href="#i-descarga">
+            </use>
+          </svg>
+          <span class="texto">          Exportar
+</span>
+        </button>
+      </div>
+    </header>
+    <div id="avisos" aria-live="polite">
+    </div>
+    <div class="contenedor">
+      <section class="resumen" aria-label="Resumen">
+        <div class="kpi" id="kpi-hoy">
+          <div class="icono">
+            <svg class="ic">
+              <use href="#i-onda">
+              </use>
+            </svg>
+          </div>
+          <div class="dato">
+            <div class="etiqueta">
+              Eventos hoy
+            </div>
+            <div class="valor">
+              –
+            </div>
+            <div class="detalle">
+            </div>
+          </div>
+        </div>
+        <div class="kpi" id="kpi-ultimo">
+          <div class="icono">
+            <svg class="ic">
+              <use href="#i-reloj">
+              </use>
+            </svg>
+          </div>
+          <div class="dato">
+            <div class="etiqueta">
+              Último evento
+            </div>
+            <div class="valor">
+              –
+            </div>
+            <div class="detalle">
+            </div>
+          </div>
+        </div>
+        <div class="kpi" id="kpi-equipos">
+          <div class="icono">
+            <svg class="ic">
+              <use href="#i-equipo">
+              </use>
+            </svg>
+          </div>
+          <div class="dato">
+            <div class="etiqueta">
+              Equipos en línea
+            </div>
+            <div class="valor">
+              –
+            </div>
+            <div class="detalle">
+            </div>
+          </div>
+        </div>
+        <div class="kpi" id="kpi-gps">
+          <div class="icono">
+            <svg class="ic">
+              <use href="#i-gps">
+              </use>
+            </svg>
+          </div>
+          <div class="dato">
+            <div class="etiqueta">
+              Ubicación GPS
+            </div>
+            <div class="valor">
+              –
+            </div>
+            <div class="detalle">
+            </div>
+          </div>
+        </div>
+      </section>
+      <main class="cuerpo">
+        <section class="tarjeta">
+          <div class="tarjeta-cab">
+            <h2>
+              Mapa
+            </h2>
+            <span class="nota" id="nota-mapa"></span>
+          </div>
+          <div id="mapa">
+          </div>
+        </section>
+        <aside id="lateral">
+          <div class="pestanas" role="tablist">
+            <button role="tab" id="tab-eventos" aria-selected="true">
+              Eventos
+            </button>
+            <button role="tab" id="tab-equipos" aria-selected="false">
+              Equipos
+            </button>
+          </div>
+          <section class="tarjeta" id="sec-eventos">
+            <div class="tarjeta-cab">
+              <h2>
+                Eventos recientes
+              </h2>
+              <span class="nota" id="total"></span>
+            </div>
+            <div class="lista" id="eventos">
+            </div>
+          </section>
+          <section class="tarjeta" id="sec-equipos">
+            <div class="tarjeta-cab">
+              <h2>
+                Equipos
+              </h2>
+              <span class="nota" id="nota-equipos"></span>
+            </div>
+            <div class="lista" id="dispositivos">
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js">
+    </script>
+    <script>
+      const INTERVALO_MS = 5000;
+const MAX_EVENTOS = 500;
+const PULSO_MS = 60000;      // un evento nuevo se resalta durante 1 minuto
+const NIVEL_MAX = 4095;      // escala del ADC del ESP32 (para la barra de intensidad)
+const TITULO_BASE = document.title;
+
+// Modo cliente: /api/v1/ver#k=<clave> — solo ve el proyecto de su clave.
+// Modo administrador: panel (Cloudflare Access) o la red local.
+const CLAVE_CLIENTE = new URLSearchParams(location.hash.slice(1)).get("k");
+
+// Tu propio proxy en Cloudflare Workers: reenvía las peticiones a
+// atlinova y agrega los headers de CORS. No depende de terceros.
+const MI_PROXY = "https://sia-lima-proxy.tristancarlos806.workers.dev/api/v1";
+
+const RUTAS = CLAVE_CLIENTE
+  ? { proyectos: `${MI_PROXY}/yo`, base: (p) => `${MI_PROXY}/${p}` }
+  : { proyectos: "panel/api/proyectos", base: (p) => `panel/api/${p}` };
+
+const $ = (id) => document.getElementById(id);
+const esTelefono = () => matchMedia("(max-width: 800px)").matches;
+
+function leerPreferencia(clave) { try { return localStorage.getItem(clave); } catch { return null; } }
+function guardarPreferencia(clave, valor) { try { localStorage.setItem(clave, valor); } catch {} }
+
+// ---------------------------------------------------------------- mapa
+
+const mapa = L.map("mapa", { zoomControl: !esTelefono() }).setView([-12.0464, -77.0428], 12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: "&copy; OpenStreetMap"
+}).addTo(mapa);
+const capa = L.layerGroup().addTo(mapa);
+
+// ---------------------------------------------------------------- estado
+
+let proyecto = null;
+let cursor = 0;
+let eventos = [];
+let dispositivos = [];
+let centrado = false;
+let temporizador = null;
+let ocupado = false;
+let primeraCarga = true;       // lo que llega en la primera carga es historial: no alerta
+let noVistos = 0;
+let alertasActivas = leerPreferencia("alertas") === "1";
+let audio = null;
+
+// ---------------------------------------------------------------- utilidades
+
+function el(etiqueta, clase, texto) {
+  const n = document.createElement(etiqueta);
+  if (clase) n.className = clase;
+  if (texto !== undefined) n.textContent = texto;
+  return n;
+}
+function icono(nombre) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "ic");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", "#" + nombre);
+  svg.append(use);
+  return svg;
+}
+const nombreTipo = (t) => { const s = t.replaceAll("_", " "); return s.charAt(0).toUpperCase() + s.slice(1); };
+const horaCorta = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const fechaHora = (iso) => iso ? new Date(iso).toLocaleString() : "-";
+
+function hace(iso) {
+  if (!iso) return "";
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return "ahora";
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
+  return `hace ${Math.floor(s / 86400)} d`;
+}
+
+function etiquetaDia(fecha) {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const d = new Date(fecha); d.setHours(0, 0, 0, 0);
+  const dias = Math.round((hoy - d) / 86400000);
+  if (dias === 0) return "Hoy";
+  if (dias === 1) return "Ayer";
+  return d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+}
+
+async function pedir(ruta) {
+  const r = await fetch(ruta, CLAVE_CLIENTE
+    ? { headers: { "X-Api-Key": CLAVE_CLIENTE }, cache: "no-store" }
+    : { credentials: "same-origin", cache: "no-store" });
+  if (r.status === 401) throw new Error("enlace inválido o acceso revocado");
+  if (!r.ok) throw new Error(`${r.status} en ${ruta}`);
+  return r.json();
+}
+
+function ponerEstado(clase, texto) {
+  const e = $("estado");
+  e.className = "estado " + clase;
+  e.querySelector(".texto-estado").textContent = texto;
+  e.title = texto;
+}
+
+function ponerKpi(id, valor, detalle, color) {
+  const k = $(id);
+  k.className = "kpi" + (color ? " " + color : "");
+  k.querySelector(".valor").textContent = valor;
+  k.querySelector(".detalle").textContent = detalle || " ";
+}
+
+// ---------------------------------------------------------------- alertas en vivo
+
+function actualizarBotonAlertas() {
+  const b = $("btn-alertas");
+  b.setAttribute("aria-pressed", String(alertasActivas));
+  b.title = alertasActivas ? "Alertas activadas (clic para silenciar)" : "Activar alertas en vivo";
+  b.querySelector("use").setAttribute("href", alertasActivas ? "#i-campana" : "#i-campana-off");
+}
+
+async function alternarAlertas() {
+  alertasActivas = !alertasActivas;
+  guardarPreferencia("alertas", alertasActivas ? "1" : "0");
+  actualizarBotonAlertas();
+  if (!alertasActivas) return;
+  prepararAudio();
+  sonar();  // confirma que el sonido funciona
+  if ("Notification" in window && Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch {}
+  }
+}
+
+function prepararAudio() {
+  // El navegador solo permite sonido después de un toque del usuario.
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+  } catch { audio = null; }
+}
+
+function sonar() {
+  if (!audio) return;
+  const t = audio.currentTime;
+  [[880, 0], [660, 0.18]].forEach(([frecuencia, inicio]) => {
+    const osc = audio.createOscillator();
+    const vol = audio.createGain();
+    osc.frequency.value = frecuencia;
+    vol.gain.setValueAtTime(0.0001, t + inicio);
+    vol.gain.exponentialRampToValueAtTime(0.3, t + inicio + 0.02);
+    vol.gain.exponentialRampToValueAtTime(0.0001, t + inicio + 0.16);
+    osc.connect(vol).connect(audio.destination);
+    osc.start(t + inicio);
+    osc.stop(t + inicio + 0.17);
+  });
+}
+
+function mostrarAviso(ev) {
+  const aviso = el("div", "aviso");
+  const ic = el("div", "icono");
+  ic.append(icono("i-onda"));
+  const texto = el("div");
+  texto.append(el("strong", null, nombreTipo(ev.tipo)),
+               el("span", null, `${ev.device_id} · ${horaCorta(ev.ts)}` + (ev.lat === null ? " · sin ubicación" : "")));
+  aviso.append(ic, texto);
+  aviso.addEventListener("click", () => { enfocar(ev); aviso.remove(); });
+  $("avisos").prepend(aviso);
+  while ($("avisos").children.length > 3) $("avisos").lastChild.remove();
+  setTimeout(() => aviso.remove(), 8000);
+}
+
+function notificarSistema(ev) {
+  if (!("Notification" in window) || Notification.permission !== "granted" || !document.hidden) return;
+  try {
+    const n = new Notification(nombreTipo(ev.tipo), {
+      body: `${ev.device_id} · ${horaCorta(ev.ts)}`, tag: ev.event_id
+    });
+    n.onclick = () => { window.focus(); enfocar(ev); n.close(); };
+  } catch {}  // en Android Chrome requiere service worker: ahí queda la vibración
+}
+
+function alertar(nuevos) {
+  noVistos += nuevos.length;
+  if (document.hidden) document.title = `(${noVistos}) ${TITULO_BASE}`;
+  const ahora = Date.now();
+  nuevos.forEach((ev) => { ev._nuevoHasta = ahora + PULSO_MS; });
+  if (!alertasActivas) return;
+  nuevos.slice(-3).forEach(mostrarAviso);
+  sonar();
+  if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  nuevos.slice(-3).forEach(notificarSistema);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) { noVistos = 0; document.title = TITULO_BASE; }
+});
+
+// ---------------------------------------------------------------- exportar
+
+function celda(v) {
+  const s = v === null || v === undefined ? "" : String(v);
+  return /[";\n\r]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+}
+
+async function exportar() {
+  const boton = $("btn-exportar");
+  boton.disabled = true;
+  try {
+    const todos = [];
+    let desde = 0;
+    for (;;) {  // descarga TODO el historial, de a 500
+      const pag = await pedir(`${RUTAS.base(proyecto)}/eventos?desde=${desde}&limite=500`);
+      todos.push(...pag.eventos);
+      if (pag.eventos.length < 500) break;
+      desde = pag.cursor;
+    }
+    const columnas = ["fecha_local", "fecha_utc", "equipo", "tipo", "latitud", "longitud", "fix_gps",
+                      "nivel", "satelites", "id_evento", "otros_datos"];
+    const filas = todos.map((e) => {
+      const { nivel, sats, ...otros } = e.datos || {};
+      return [new Date(e.ts).toLocaleString(), e.ts, e.device_id, nombreTipo(e.tipo), e.lat, e.lon,
+              e.fix ? "sí" : "no", nivel, sats, e.event_id,
+              Object.keys(otros).length ? JSON.stringify(otros) : ""];
+    });
+    // ";" y BOM para que Excel en español lo abra con columnas y tildes correctas.
+    const csv = "﻿" + [columnas, ...filas].map((f) => f.map(celda).join(";")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = el("a");
+    a.href = url;
+    a.download = `eventos-${proyecto}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (e) {
+    alert("No se pudo exportar: " + e.message);
+  } finally {
+    boton.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------- dibujo
+
+function enfocar(ev) {
+  if (ev.lat === null) return;
+  if (esTelefono()) window.scrollTo({ top: 0, behavior: "smooth" });
+  mapa.setView([ev.lat, ev.lon], 17);
+  if (ev._marcador) ev._marcador.openPopup();
+}
+
+function vacio(texto) {
+  const v = el("div", "vacio");
+  v.append(icono("i-vacio"), texto);
+  return v;
+}
+
+function dibujarResumen() {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const deHoy = eventos.filter((e) => new Date(e.ts) >= hoy);
+  const ultimaHora = deHoy.filter((e) => Date.now() - new Date(e.ts) < 3600000).length;
+  ponerKpi("kpi-hoy", String(deHoy.length),
+           deHoy.length ? `${ultimaHora} en la última hora` : "Sin eventos hoy", deHoy.length ? "rojo" : "");
+
+  const ultimo = eventos[eventos.length - 1];
+  ponerKpi("kpi-ultimo", ultimo ? hace(ultimo.ts) : "Ninguno",
+           ultimo ? `${ultimo.device_id} · ${horaCorta(ultimo.ts)}` : "Aún no hay eventos");
+
+  const enLinea = dispositivos.filter((d) => d.en_linea).length;
+  ponerKpi("kpi-equipos", dispositivos.length ? `${enLinea} de ${dispositivos.length}` : "–",
+           !dispositivos.length ? "Sin equipos" : enLinea === dispositivos.length ? "Todos conectados" : `${dispositivos.length - enLinea} sin conexión`,
+           !dispositivos.length ? "" : enLinea === dispositivos.length ? "verde" : "ambar");
+
+  const activos = dispositivos.filter((d) => d.en_linea);
+  const conFix = activos.filter((d) => d.estado && d.estado.fix === true).length;
+  if (!activos.length) {
+    ponerKpi("kpi-gps", "–", "Sin equipos en línea");
+  } else if (conFix === activos.length) {
+    ponerKpi("kpi-gps", "Con posición", `${conFix} de ${activos.length} equipos`, "verde");
+  } else {
+    const vista = Math.max(0, ...activos.map((d) => (d.estado && d.estado.sats_vista) || 0));
+    ponerKpi("kpi-gps", "Buscando", `${conFix} de ${activos.length} con posición · ${vista} satélites a la vista`, "ambar");
+  }
+}
+
+function dibujarDispositivos() {
+  const cont = $("dispositivos");
+  cont.replaceChildren();
+  const enLinea = dispositivos.filter((d) => d.en_linea).length;
+  $("tab-equipos").textContent = `Equipos (${enLinea}/${dispositivos.length})`;
+  $("nota-equipos").textContent = dispositivos.length ? `${enLinea} en línea` : "";
+  if (!dispositivos.length) { cont.append(vacio("Sin equipos registrados")); return; }
+  for (const d of dispositivos) {
+    const fila = el("div", "equipo");
+    const info = el("div");
+    const e = d.estado || {};
+    const partes = [d.en_linea ? "En línea" : "Sin conexión"];
+    if (d.ultimo_latido) partes.push("visto " + hace(d.ultimo_latido));
+    if (e.fix === true) partes.push("GPS con posición");
+    else if (e.sats_vista !== undefined) partes.push(`GPS buscando (${e.sats_vista} sat.)`);
+    if (e.rssi !== undefined) partes.push(`WiFi ${e.rssi} dBm`);
+    if (e.pendientes) partes.push(`${e.pendientes} en cola`);
+    info.append(el("div", "nombre", d.device_id), el("div", "meta", partes.join(" · ")));
+    fila.append(el("span", "led" + (d.en_linea ? " on" : "")), info);
+    cont.append(fila);
+  }
+}
+
+function barraIntensidad(nivel) {
+  const b = el("div", "intensidad");
+  const p = Math.max(4, Math.min(100, (nivel / NIVEL_MAX) * 100));
+  if (p > 66) b.classList.add("alta"); else if (p > 40) b.classList.add("media");
+  const s = el("span");
+  s.style.width = p + "%";
+  b.append(s);
+  b.title = `Nivel ${nivel}`;
+  return b;
+}
+
+function dibujarEventos() {
+  const cont = $("eventos");
+  cont.replaceChildren();
+  capa.clearLayers();
+  $("total").textContent = eventos.length ? `${eventos.length} mostrados` : "";
+  const conUbicacion = eventos.filter((e) => e.lat !== null).length;
+  $("nota-mapa").textContent = eventos.length ? `${conUbicacion} de ${eventos.length} con ubicación` : "";
+  if (!eventos.length) { cont.append(vacio("Sin eventos todavía")); return; }
+
+  const ahora = Date.now();
+  let diaActual = null;
+  for (const ev of [...eventos].reverse()) {
+    const dia = etiquetaDia(ev.ts);
+    if (dia !== diaActual) { cont.append(el("div", "dia", dia)); diaActual = dia; }
+
+    const nuevo = ev._nuevoHasta && ahora < ev._nuevoHasta;
+    const fila = el("div", "evento" + (nuevo ? " nuevo" : "") + (ev.lat === null ? " sin-gps" : ""));
+    const ic = el("div", "icono");
+    ic.append(icono("i-onda"));
+
+    const centro = el("div");
+    const meta = el("div", "meta");
+    meta.append(el("span", null, ev.device_id), el("span", null, horaCorta(ev.ts)));
+    if (ev.lat === null) meta.append(el("span", "chip gris", "Sin ubicación"));
+    else if (!ev.fix) meta.append(el("span", "chip ambar", "Última posición conocida"));
+    centro.append(el("div", "titulo", nombreTipo(ev.tipo)), meta);
+
+    const der = el("div", "derecha");
+    der.append(el("span", "hace", hace(ev.ts)));
+    if (ev.datos && typeof ev.datos.nivel === "number") der.append(barraIntensidad(ev.datos.nivel));
+
+    fila.append(ic, centro, der);
+    fila.addEventListener("click", () => enfocar(ev));
+    cont.append(fila);
+
+    if (ev.lat !== null) {
+      const color = nuevo ? "#c2362b" : (ev.fix ? "#1a7f55" : "#b26a00");
+      const m = L.circleMarker([ev.lat, ev.lon], {
+        radius: nuevo ? 10 : 7, color: "#fff", weight: 2, fillColor: color, fillOpacity: .95,
+        className: nuevo ? "pulso" : ""
+      });
+      const popup = el("div");
+      popup.append(el("strong", null, nombreTipo(ev.tipo)), el("br"), ev.device_id, el("br"), fechaHora(ev.ts));
+      m.bindPopup(popup).addTo(capa);
+      ev._marcador = m;
+    }
+  }
+  const ultimo = [...eventos].reverse().find((e) => e.lat !== null);
+  if (ultimo && !centrado) { mapa.setView([ultimo.lat, ultimo.lon], 15); centrado = true; }
+}
+
+function dibujarTodo() {
+  dibujarEventos();
+  dibujarDispositivos();
+  dibujarResumen();
+}
+
+// ---------------------------------------------------------------- ciclo
+
+async function actualizar() {
+  if (ocupado) return;
+  ocupado = true;
+  const pedido = proyecto;
+  let hayMas = false;
+  try {
+    const [pag, disp] = await Promise.all([
+      pedir(`${RUTAS.base(proyecto)}/eventos?desde=${cursor}&limite=500`),
+      pedir(`${RUTAS.base(proyecto)}/dispositivos`)
+    ]);
+    if (pedido !== proyecto) return;
+    if (pag.eventos.length) {
+      if (!primeraCarga) alertar(pag.eventos);
+      eventos = eventos.concat(pag.eventos).slice(-MAX_EVENTOS);
+      cursor = pag.cursor;
+      hayMas = pag.eventos.length === 500;
+    }
+    if (!hayMas) primeraCarga = false;
+    dispositivos = disp.dispositivos;
+    dibujarTodo();
+    ponerEstado("vivo", "En vivo · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  } catch (e) {
+    ponerEstado("error", "Error: " + e.message);
+  } finally {
+    ocupado = false;
+  }
+  if (hayMas) actualizar();
+}
+
+function cambiarProyecto(nombre) {
+  proyecto = nombre;
+  ocupado = false;
+  cursor = 0;
+  eventos = [];
+  dispositivos = [];
+  centrado = false;
+  primeraCarga = true;
+  dibujarTodo();
+  clearInterval(temporizador);
+  actualizar();
+  temporizador = setInterval(actualizar, INTERVALO_MS);
+}
+
+function elegirPestana(nombre) {
+  $("lateral").dataset.pestana = nombre;
+  $("tab-eventos").setAttribute("aria-selected", String(nombre === "eventos"));
+  $("tab-equipos").setAttribute("aria-selected", String(nombre === "equipos"));
+}
+
+function ajustarAltoCabecera() {
+  document.documentElement.style.setProperty("--alto-header", $("cabecera").offsetHeight + "px");
+  mapa.invalidateSize();
+}
+
+// ---------------------------------------------------------------- inicio
+
+$("btn-alertas").addEventListener("click", alternarAlertas);
+$("btn-exportar").addEventListener("click", exportar);
+$("tab-eventos").addEventListener("click", () => elegirPestana("eventos"));
+$("tab-equipos").addEventListener("click", () => elegirPestana("equipos"));
+window.addEventListener("resize", ajustarAltoCabecera);
+// Si las alertas quedaron activadas de una visita anterior, el audio se habilita con el primer toque.
+document.addEventListener("pointerdown", () => { if (alertasActivas) prepararAudio(); }, { once: true });
+actualizarBotonAlertas();
+elegirPestana("eventos");
+
+(async () => {
+  try {
+    const { proyectos } = await pedir(RUTAS.proyectos);
+    const sel = $("proyecto");
+    for (const p of proyectos) sel.append(new Option(p, p));
+    sel.addEventListener("change", () => cambiarProyecto(sel.value));
+    if (proyectos.length === 1) {
+      $("selector").hidden = true;
+      $("titulo").textContent = `Monitoreo de eventos · ${proyectos[0].toUpperCase()}`;
+    }
+    ajustarAltoCabecera();
+    if (proyectos.length) cambiarProyecto(proyectos[0]);
+  } catch (e) {
+    ponerEstado("error", "Error: " + e.message);
+  }
+})();
+// Refresca los "hace X min" y el resumen aunque no lleguen datos nuevos.
+setInterval(() => { if (proyecto) dibujarTodo(); }, 30000);
+    </script>
+  </body>
+</html>
